@@ -3,7 +3,7 @@ import re
 import telebot
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 import configparser
-from functions import check_url, save_news_url
+from functions import check_url, save_news_url, check_domain, save_domain
 from pymongo import MongoClient
 from pymongo.server_api import ServerApi
 from newsapi import NewsApiClient
@@ -59,12 +59,56 @@ def preferences_markup(user):
     markup.row_width = 2
     markup.add(
         InlineKeyboardButton("Cambia numero", callback_data="news_req"),
-        InlineKeyboardButton("Disattiva localizzazione", callback_data="localization") if user['localization'] else
-        InlineKeyboardButton("Attiva localizzazione", callback_data="localization"),
+        InlineKeyboardButton("Disattiva localizzazione", callback_data="localization_no") if user['localization'] else
+        InlineKeyboardButton("Attiva localizzazione", callback_data="localization_yes"),
         InlineKeyboardButton("Aggiungi dominio", callback_data="add_domain"),
         InlineKeyboardButton("Rimuovi dominio", callback_data="remove_domain")
     )
     return markup
+
+
+def change_localization(message, boolean):
+    db.get_collection('users').update_one({
+        'chat_id': message.chat.id
+    }, {"$set":
+        {
+            'localization': boolean
+        }})
+    bot.send_message(message.chat.id, "Localizzazione aggiornata")
+
+
+def change_news_for_req(message):
+    if type(message.text) is str:
+        try:
+            number = int(message.text)
+            logged_user = db.get_collection('users').find_one({'chat_id': message.chat.id})
+            if number < 1 or number > 20 or number == logged_user['news_for_request']:
+                bot.send_message(message.chat.id, "Numero inserito non valido o uguale a quello già indicato. Riprova.")
+            else:
+                db.get_collection('users').update_one({
+                    'chat_id': message.chat.id
+                }, {"$set": {
+                    'news_for_request': number
+                }})
+                bot.send_message(message.chat.id, "Numero di notizie per richiesta modificato con successo.")
+
+        except ValueError:
+            bot.send_message(message.chat.id, "Non hai inserito un numero. Riprova.")
+
+
+def add_domain(message):
+    if not check_domain(message.text):
+        bot.send_message(message.chat.id, "Il dominio che hai fornito non è valido, riprova con un altro")
+    else:
+        if save_domain(message):
+            bot.send_message(message.chat.id, "Dominio registrato. Non riceverai più notizie da questo dominio")
+        else:
+            bot.send_message(message.chat.id, "Sembra che avevi già escluso in precedenza questo dominio, riprova con "
+                                              "un altro")
+
+
+def remove_domain(message):
+    pass
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -81,13 +125,26 @@ def bot_callback(call):
             'current_page': 1,
             'tag': None
         })
+    elif call.data == "localization_yes":
+        msg = bot.send_message(call.message.chat.id, "Manda un nuovo message cosi che possa capire dove ti trovi")
+        bot.register_next_step_handler(msg, change_localization, True)
+    elif call.data == "localization_no":
+        change_localization(call.message, False)
+    elif call.data == "news_req":
+        msg = bot.send_message(call.message.chat.id, "Dimmi quante notizie vuoi che ti mando. Te ne posso mandare al "
+                                                     "massimo 20")
+        bot.register_next_step_handler(msg, change_news_for_req)
+    elif call.data == "add_domain":
+        start = bot.send_message(call.message.chat.id, "Ottimo, mandami qui di seguito il dominio che vuoi escludere")
+        bot.register_next_step_handler(start, add_domain)
+    elif call.data == "remove_domain":
+        remove_domain(call.message)
     else:
         print("ciao")
         r1 = r'yes'
         r2 = r'no'
         r3 = r'change'
         if re.search(r1, call.data):
-            print("ciaociao")
             data = call.data.split("_")
             if data[1] == 'cat':
                 search_for_category(call.message, {
@@ -95,7 +152,6 @@ def bot_callback(call):
                     'category': data[3]
                 })
             if data[1] == 'tag':
-                print("ciaociaociao")
                 search_for_tag(call.message, {
                     'current_page': int(data[4]),
                     'tag': data[3]
@@ -118,6 +174,11 @@ def bot_callback(call):
                     'current_page': 1,
                     'tag': None
                 })
+
+
+@bot.message_handler(commands=['ciao'])
+def ciao(message):
+    bot.send_message(message.chat.id, "ciao")
 
 
 @bot.message_handler(commands=['start'])
@@ -246,6 +307,9 @@ def manage_preferences(message):
 
 if __name__ == '__main__':
     try:
+        client.admin.command('ping')
+        print("Pinged your deployment. You successfully connected to MongoDB!")
+
         print("Initializing Database...")
         # Define the Database using Database name
         db = client[config.get('private', 'db_name')]
