@@ -1,5 +1,5 @@
 import re
-
+from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
 import telebot
 import configparser
 from pymongo import MongoClient
@@ -15,7 +15,7 @@ API_KEY = config.get('private', 'bot_token')
 bot = telebot.TeleBot(API_KEY)
 newsapi = NewsApiClient(api_key=config.get('private', 'newsApi_key'))
 
-uri = "mongodb+srv://BotUser:RtMw8xAdwyFjU924@clusterbot.rjqkcg5.mongodb.net/?retryWrites=true&w=majority"
+uri = config.get('private', 'db_uri')
 # Create a new client and connect to the server
 client = MongoClient(uri, server_api=ServerApi('1'))
 db = client[config.get('private', 'db_name')]
@@ -64,6 +64,28 @@ def save_domain(message):
         return False
 
 
+def remove_domain(message):
+    domain = message.text
+    user_chat_id = message.chat.id
+    print("ciao")
+    existing_user_with_domain = db.get_collection('users').find_one({
+        "chat_id": user_chat_id,
+        "excluded_domains": domain
+    })
+    if existing_user_with_domain:
+        # db.get_collection('users').update_one({
+        #     'chat_id': user_chat_id
+        # },
+        #     {"$pull": {
+        #         'excluded_domains': {
+        #             '$in': [domain]
+        #         }
+        #     }})
+        return True
+    else:
+        return False
+
+
 def save_news_url(message, custom_name_message):
     url_site = message.text
     user_chat_id = message.chat.id
@@ -99,3 +121,18 @@ def save_news_url(message, custom_name_message):
                         }}}
             )
             return True
+
+
+def get_user_saved_news(message):
+    news = db.get_collection('news').find({
+        'interested_users.user_chat_id': message.chat.id
+    })
+    keyboard = []
+
+    for n in news:
+        for user in n['interested_users']:
+            if user['user_chat_id'] == message.chat.id:
+                tempButton = InlineKeyboardButton(text=user['name'], url=n['url'])
+                keyboard.append([tempButton])
+        print("fatto")
+    return keyboard

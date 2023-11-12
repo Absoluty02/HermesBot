@@ -1,70 +1,5 @@
-import re
-
-import telebot
-from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
-import configparser
-from functions import check_url, save_news_url, check_domain, save_domain
-from pymongo import MongoClient
-from pymongo.server_api import ServerApi
-from newsapi import NewsApiClient
-
-config = configparser.ConfigParser()
-config.read('config.ini')
-
-API_KEY = config.get('private', 'bot_token')
-
-bot = telebot.TeleBot(API_KEY)
-newsapi = NewsApiClient(api_key=config.get('private', 'newsApi_key'))
-uri = "mongodb+srv://BotUser:RtMw8xAdwyFjU924@clusterbot.rjqkcg5.mongodb.net/?retryWrites=true&w=majority"
-client = MongoClient(uri, server_api=ServerApi('1'))
-
-
-def search_markup_inline():
-    markup = InlineKeyboardMarkup()
-    markup.row_width = 2
-    markup.add(
-        InlineKeyboardButton("Categoria", callback_data="cat"),
-        InlineKeyboardButton("Parola chiave", callback_data="tag")
-    )
-    return markup
-
-
-def continue_category_search_markup_inline(current_page, category):
-    markup = InlineKeyboardMarkup()
-    markup.row_width = 2
-    markup.add(
-        InlineKeyboardButton("Si", callback_data="searching_yes_cat_" + category + "_"
-                                                 + str(current_page)),
-        InlineKeyboardButton("No", callback_data="searching_no"),
-        InlineKeyboardButton("Cambia categoria", callback_data="searching_change_cat"),
-        InlineKeyboardButton("Cambia ricerca", callback_data="searching_change_search")
-    )
-    return markup
-
-
-def continue_tag_search_markup_inline(current_page, tag):
-    markup = InlineKeyboardMarkup()
-    markup.row_width = 2
-    markup.add(
-        InlineKeyboardButton("Si", callback_data="searching_yes_tag_" + tag + "_" + str(current_page)),
-        InlineKeyboardButton("No", callback_data="searching_no"),
-        InlineKeyboardButton("Cambia parola chiave", callback_data="searching_change_tag"),
-        InlineKeyboardButton("Cambia ricerca", callback_data="searching_change_search")
-    )
-    return markup
-
-
-def preferences_markup(user):
-    markup = InlineKeyboardMarkup()
-    markup.row_width = 2
-    markup.add(
-        InlineKeyboardButton("Cambia numero", callback_data="news_req"),
-        InlineKeyboardButton("Disattiva localizzazione", callback_data="localization_no") if user['localization'] else
-        InlineKeyboardButton("Attiva localizzazione", callback_data="localization_yes"),
-        InlineKeyboardButton("Aggiungi dominio", callback_data="add_domain"),
-        InlineKeyboardButton("Rimuovi dominio", callback_data="remove_domain")
-    )
-    return markup
+from markups import *
+from functions import *
 
 
 def change_localization(message, boolean):
@@ -107,8 +42,15 @@ def add_domain(message):
                                               "un altro")
 
 
-def remove_domain(message):
-    pass
+def remove_excluded_domain(message):
+    if not check_domain(message.text):
+        bot.send_message(message.chat.id, "Il dominio che hai fornito non è valido, riprova con un altro")
+    else:
+        if remove_domain(message):
+            bot.send_message(message.chat.id, "Dominio rimosso. Potrai ricevere notizie da questo dominio")
+        else:
+            bot.send_message(message.chat.id, "Dominio non trovato tra gli esclusi, riprova con "
+                                              "un altro")
 
 
 @bot.callback_query_handler(func=lambda call: True)
@@ -135,10 +77,13 @@ def bot_callback(call):
                                                      "massimo 20")
         bot.register_next_step_handler(msg, change_news_for_req)
     elif call.data == "add_domain":
-        start = bot.send_message(call.message.chat.id, "Ottimo, mandami qui di seguito il dominio che vuoi escludere")
+        start = bot.send_message(call.message.chat.id, "Mandami qui di seguito il dominio che vuoi escludere dalla "
+                                                       "ricerca")
         bot.register_next_step_handler(start, add_domain)
     elif call.data == "remove_domain":
-        remove_domain(call.message)
+        print("qua va bene")
+        start = bot.send_message(call.message.chat.id, "Mandami qui di seguito il dominio che vuoi rimuovere")
+        bot.register_next_step_handler(start, remove_excluded_domain)
     else:
         print("ciao")
         r1 = r'yes'
@@ -236,12 +181,16 @@ def search_for_category(message, details):
     logged_user = db.get_collection('users').find_one({'chat_id': message.chat.id})
 
     if details['category'] is None:
-        results = newsapi.get_top_headlines(category=message.text, page=details['current_page'],
-                                            page_size=logged_user['news_for_request'])
+        results = newsapi.get_top_headlines(
+            country=message.from_user.language_code if logged_user['localization'] else None,
+            category=message.text, page=details['current_page'],
+            page_size=logged_user['news_for_request'])
         current_cat = message.text
     else:
-        results = newsapi.get_top_headlines(category=details['category'], page=details['current_page'],
-                                            page_size=logged_user['news_for_request'])
+        results = newsapi.get_top_headlines(
+            language=message.from_user.language_code if logged_user['localization'] else None,
+            category=details['category'], page=details['current_page'],
+            page_size=logged_user['news_for_request'])
         current_cat = details['category']
     send_news_messages(results["articles"], message.chat.id)
     bot.send_message(message.chat.id, text="Desideri altre notizie?",
@@ -265,13 +214,26 @@ def send_news_messages(news, chat_id):
 def search_for_tag(message, details):
     bot.send_message(message.chat.id, f"Ecco le notizie di pagina {details['current_page']}")
     logged_user = db.get_collection('users').find_one({'chat_id': message.chat.id})
+
+    excluded_domains = logged_user['excluded_domains'][0]
+    for i in range(1, len(logged_user['excluded_domains'])):
+        excluded_domains += f",{logged_user['excluded_domains'][i]}"
+
     if details['tag'] is None:
         result = newsapi.get_everything(q=message.text, page=details['current_page'],
-                                        page_size=logged_user['news_for_request'], sort_by="relevancy")
+                                        exclude_domains=excluded_domains,
+                                        language=message.from_user.language_code if logged_user[
+                                            'localization'] else None,
+                                        page_size=logged_user['news_for_request'],
+                                        sort_by="relevancy")
         current_tag = message.text
     else:
         result = newsapi.get_everything(q=details['tag'], page=details['current_page'],
-                                        page_size=logged_user['news_for_request'], sort_by="relevancy")
+                                        exclude_domains=excluded_domains,
+                                        language=message.from_user.language_code if logged_user[
+                                            'localization'] else None,
+                                        page_size=logged_user['news_for_request'],
+                                        sort_by="relevancy")
         current_tag = details['tag']
     send_news_messages(result["articles"], message.chat.id)
     bot.send_message(message.chat.id, text="Desideri altre notizie?",
@@ -280,7 +242,14 @@ def search_for_tag(message, details):
 
 @bot.message_handler(commands=['visualizzaNotizie'])
 def show_news(message):
-    logged_user = db.get_collection('users').find_one({'chat_id': message.chat.id})
+    news_keyboard = get_user_saved_news(message)
+    if len(news_keyboard) > 0:
+        markup = InlineKeyboardMarkup(news_keyboard)
+        bot.send_message(message.chat.id, "Ecco la lista delle notizie salvate:", reply_markup=markup)
+    else:
+        bot.send_message(message.chat.id,
+                         "Al momento non hai salvato nessuna notizia, per aggiungere una notizia "
+                         "utilizza il comando /salvaNotizia:")
 
 
 @bot.message_handler(commands=['gestisciPreferenze'])
@@ -297,8 +266,8 @@ def manage_preferences(message):
         preferences_message += "<b>Domini esclusi</b>: Nessuno\n"
     else:
         excluded_domains = f"<b>Domini esclusi</b>: {logged_user['excluded_domains'][0]}"
-        for d in logged_user['excluded_domains']:
-            excluded_domains += f", {d}"
+        for i in range(1, len(logged_user['excluded_domains'])):
+            excluded_domains += f", {logged_user['excluded_domains'][i]}"
 
         preferences_message += f"{excluded_domains}\n"
     bot.send_message(message.chat.id, text=preferences_message, parse_mode="HTML",
@@ -318,3 +287,4 @@ if __name__ == '__main__':
         bot.polling()
     except Exception as error:
         print('Cause: {}'.format(error))
+
