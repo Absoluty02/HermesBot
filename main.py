@@ -55,75 +55,83 @@ def remove_excluded_domain(message):
 
 @bot.callback_query_handler(func=lambda call: True)
 def bot_callback(call):
-    if call.data == "cat":
-        msg = bot.send_message(call.message.chat.id, "Dimmi la categoria di notizie a cui sei interessato")
-        bot.register_next_step_handler(msg, search_for_category, {
-            'current_page': 1,
-            'category': None
-        })
-    elif call.data == "tag":
-        msg = bot.send_message(call.message.chat.id, "Dimmi la fonte di notizie a cui sei interessato")
+    split_data = call.data.split("_")
+    if split_data[0] == "searching":
+        manage_search_callback(call)
+    elif split_data[0] == "continue":
+        manage_continue_search_callback(call)
+    elif split_data[0] == "preference":
+        manage_preference_callback(call)
+
+
+def manage_search_callback(call):
+    search_data = call.data.split("_")
+    if search_data[1] == "category":
+        bot.send_message(call.message.chat.id, "Dimmi la categoria di notizie a cui sei interessato",
+                         reply_markup=category_search_markup_inline())
+
+    elif search_data[1] == "tag":
+        msg = bot.send_message(call.message.chat.id, "Dimmi la parola chiave a cui sei interessato")
         bot.register_next_step_handler(msg, search_for_tag, {
             'current_page': 1,
             'tag': None
         })
-    elif call.data == "localization_yes":
+    else:
+        search_for_category(call.message, {
+            'current_page': 1,
+            'category': search_data[2]
+        })
+
+
+def manage_continue_search_callback(call):
+
+    data = call.data.split("_")
+
+    if data[2] == 'yes':
+        if data[3] == 'cat':
+            search_for_category(call.message, {
+                'current_page': int(data[5]),
+                'category': data[4]
+            })
+        if data[3] == 'tag':
+            search_for_tag(call.message, {
+                'current_page': int(data[5]),
+                'tag': data[4]
+            })
+    if data[2] == 'no':
+        bot.send_message(call.message.chat.id, "Va bene, dimmi cosa posso fare per te.")
+    if data[2] == 'change':
+        if data[3] == "search":
+            search(call.message)
+        if data[3] == "cat":
+            bot.send_message(call.message.chat.id, "Dimmi la categoria di notizie a cui sei interessato",
+                             reply_markup=category_search_markup_inline())
+        if data[3] == "tag":
+            msg = bot.send_message(call.message.chat.id, "Dimmi la parole chiave a cui sei interessato")
+            bot.register_next_step_handler(msg, search_for_tag, {
+                'current_page': 1,
+                'tag': None
+            })
+
+
+def manage_preference_callback(call):
+    preference_data = call.data.split("_")
+    if preference_data[1] == "localization_yes":
         msg = bot.send_message(call.message.chat.id, "Manda un nuovo message cosi che possa capire dove ti trovi")
         bot.register_next_step_handler(msg, change_localization, True)
-    elif call.data == "localization_no":
+    elif preference_data[1] == "localization_no":
         change_localization(call.message, False)
-    elif call.data == "news_req":
+    elif preference_data[1] == "news_req":
         msg = bot.send_message(call.message.chat.id, "Dimmi quante notizie vuoi che ti mando. Te ne posso mandare al "
                                                      "massimo 20")
         bot.register_next_step_handler(msg, change_news_for_req)
-    elif call.data == "add_domain":
-        start = bot.send_message(call.message.chat.id, "Mandami qui di seguito il dominio che vuoi escludere dalla "
-                                                       "ricerca")
-        bot.register_next_step_handler(start, add_domain)
-    elif call.data == "remove_domain":
-        print("qua va bene")
-        start = bot.send_message(call.message.chat.id, "Mandami qui di seguito il dominio che vuoi rimuovere")
-        bot.register_next_step_handler(start, remove_excluded_domain)
-    else:
-        print("ciao")
-        r1 = r'yes'
-        r2 = r'no'
-        r3 = r'change'
-        if re.search(r1, call.data):
-            data = call.data.split("_")
-            if data[1] == 'cat':
-                search_for_category(call.message, {
-                    'current_page': int(data[4]),
-                    'category': data[3]
-                })
-            if data[1] == 'tag':
-                search_for_tag(call.message, {
-                    'current_page': int(data[4]),
-                    'tag': data[3]
-                })
-        if re.search(r2, call.data):
-            pass
-        if re.search(r3, call.data):
-            data = call.data.split("_")
-            if data[2] == "search":
-                search(call.message)
-            if data[2] == "cat":
-                msg = bot.send_message(call.message.chat.id, "Dimmi la categoria di notizie a cui sei interessato")
-                bot.register_next_step_handler(msg, search_for_category, {
-                    'current_page': 1,
-                    'category': None
-                })
-            if data[2] == "tag":
-                msg = bot.send_message(call.message.chat.id, "Dimmi la fonte di notizie a cui sei interessato")
-                bot.register_next_step_handler(msg, search_for_tag, {
-                    'current_page': 1,
-                    'tag': None
-                })
-
-
-@bot.message_handler(commands=['ciao'])
-def ciao(message):
-    bot.send_message(message.chat.id, "ciao")
+    elif preference_data[1] == "add_domain":
+        msg = bot.send_message(call.message.chat.id, "Mandami qui di seguito il dominio che vuoi escludere dalla "
+                                                     "ricerca")
+        bot.register_next_step_handler(msg, add_domain)
+    elif preference_data[1] == "remove_domain":
+        msg = bot.send_message(call.message.chat.id, "Mandami qui di seguito il dominio che vuoi rimuovere")
+        bot.register_next_step_handler(msg, remove_excluded_domain)
 
 
 @bot.message_handler(commands=['start'])
@@ -140,7 +148,7 @@ def start_conversation(message):
 
     bot.send_message(message.chat.id,
                      f"Benvenuto {message.chat.first_name}, io sono Hermes, utilizza i comandi per poter "
-                     f"gestire le tue notizie preferite: ")
+                     f"gestire le tue notizie preferite.")
 
 
 @bot.message_handler(commands=['salvaNotizia'])
@@ -252,6 +260,21 @@ def show_news(message):
                          "utilizza il comando /salvaNotizia:")
 
 
+@bot.message_handler(commands=['cancellaNotizia'])
+def delete_first_step(message):
+    start = bot.send_message(message.chat.id, "Bene, mandami qui di seguito il nome con cui hai salvato il link"
+                                              " della notizia che vuoi rimuovere dai salvati")
+    bot.register_next_step_handler(start, delete_second_step)
+
+
+def delete_second_step(message):
+    if type(message.text) is str:
+        if delete_saved_news(message):
+            bot.send_message(message.chat.id, "Notizia cancellata con successo!")
+        else:
+            bot.send_message(message.chat.id), "Notizia non trovata, riprova con un'altro nome"
+
+
 @bot.message_handler(commands=['gestisciPreferenze'])
 def manage_preferences(message):
     logged_user = db.get_collection('users').find_one({'chat_id': message.chat.id})
@@ -287,4 +310,3 @@ if __name__ == '__main__':
         bot.polling()
     except Exception as error:
         print('Cause: {}'.format(error))
-

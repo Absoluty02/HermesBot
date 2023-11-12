@@ -1,5 +1,5 @@
 import re
-from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
+from telebot.types import InlineKeyboardButton
 import telebot
 import configparser
 from pymongo import MongoClient
@@ -73,14 +73,14 @@ def remove_domain(message):
         "excluded_domains": domain
     })
     if existing_user_with_domain:
-        # db.get_collection('users').update_one({
-        #     'chat_id': user_chat_id
-        # },
-        #     {"$pull": {
-        #         'excluded_domains': {
-        #             '$in': [domain]
-        #         }
-        #     }})
+        db.get_collection('users').update_one({
+            'chat_id': user_chat_id
+        },
+            {"$pull": {
+                'excluded_domains': {
+                    '$in': [domain]
+                }
+            }})
         return True
     else:
         return False
@@ -123,6 +123,26 @@ def save_news_url(message, custom_name_message):
             return True
 
 
+def delete_saved_news(message):
+    news = db.get_collection('news').find({
+        'interested_users.name': message.text
+    })
+    if len([news]) > 0:
+        for n in news:
+            db.get_collection('news').update_one({
+                'url': n['url']
+            },
+                {"$pull": {
+                    'interested_users': {
+                        'name': message.text,
+                        'user_chat_id': message.chat.id
+                    }
+                }})
+        return True
+    else:
+        return False
+
+
 def get_user_saved_news(message):
     news = db.get_collection('news').find({
         'interested_users.user_chat_id': message.chat.id
@@ -134,5 +154,4 @@ def get_user_saved_news(message):
             if user['user_chat_id'] == message.chat.id:
                 tempButton = InlineKeyboardButton(text=user['name'], url=n['url'])
                 keyboard.append([tempButton])
-        print("fatto")
     return keyboard
