@@ -1,4 +1,16 @@
 from telebot.types import InlineKeyboardButton, InlineKeyboardMarkup
+from functions import *
+
+
+def save_markup(url):
+    markup = InlineKeyboardMarkup()
+    markup.row_width = 2
+    saved_link = get_single_news(url)
+
+    markup.add(
+        InlineKeyboardButton("Salva notizia", callback_data="save_" + saved_link['_id'].__str__()),
+    )
+    return markup
 
 
 def search_markup_inline():
@@ -54,12 +66,13 @@ def continue_tag_search_markup_inline(current_page, tag):
 def preferences_markup(user):
     markup = InlineKeyboardMarkup()
     markup.row_width = 2
+    print("sono nella markup")
     markup.add(
-        InlineKeyboardButton("Cambia numero", callback_data="preference_news_req"),
-        InlineKeyboardButton("Disattiva localizzazione", callback_data="preference_localization_no")
+        InlineKeyboardButton("Cambia numero", callback_data="preference_news-req"),
+        InlineKeyboardButton("Disattiva localizzazione", callback_data="preference_localization-no")
         if user['localization'] else
-        InlineKeyboardButton("Attiva localizzazione", callback_data="preference_localization_yes"),
-        InlineKeyboardButton("Aggiungi dominio", callback_data="preference_add_domain"),
-        InlineKeyboardButton("Rimuovi dominio", callback_data="preference_remove_domain")
+        InlineKeyboardButton("Attiva localizzazione", callback_data="preference_localization-yes"),
+        InlineKeyboardButton("Aggiungi dominio", callback_data="preference_add-domain"),
+        InlineKeyboardButton("Rimuovi dominio", callback_data="preference_remove-domain")
     )
     return markup

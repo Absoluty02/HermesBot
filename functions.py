@@ -1,4 +1,6 @@
 import re
+
+from bson import ObjectId
 from telebot.types import InlineKeyboardButton
 import telebot
 import configparser
@@ -86,41 +88,51 @@ def remove_domain(message):
         return False
 
 
-def save_news_url(message, custom_name_message):
-    url_site = message.text
-    user_chat_id = message.chat.id
-
+def save_news_url(url):
+    url_site = url
+    print("sto salvando")
     existing_news = db.get_collection('news').find_one({'url': url_site})
     if not existing_news:
-        print("notizia non trovata")
         db.get_collection('news').insert_one({
             'url': url_site,
-            'interested_users': [{
-                "user_chat_id": user_chat_id,
-                "name": custom_name_message.text}
-            ]
+            'interested_users': []
         })
-        return True
+    return True
+
+
+def get_single_news(url):
+
+    existing_news = db.get_collection('news').find_one({'url': url})
+    if not existing_news:
+        save_news_url(url)
+        return db.get_collection('news').find_one({'url': url})
     else:
-        saved_news = db.get_collection('news').find_one({
-            'url': url_site,
-            'interested_users': {
-                "user_chat_id": user_chat_id
+        return existing_news
+
+
+def save_user_news(news_id, chat_id, custom_name_message):
+    object_id = ObjectId(news_id)
+    saved_news = db.get_collection('news').find_one({
+        '_id': object_id,
+        'interested_users': {
+            '$elemMatch': {
+                'user_chat_id': chat_id
             }
-        })
-        if not saved_news:
-            return False
-        else:
-            db.get_collection('news').update_one({
-                'url': url_site},
-                {"$addToSet":
-                    {"interested_users":
-                        {
-                            "user_chat_id": user_chat_id,
-                            "name": custom_name_message.text
-                        }}}
-            )
-            return True
+        }
+    })
+    if saved_news:
+        return False
+    else:
+        db.get_collection('news').update_one({
+            '_id': object_id},
+            {"$addToSet":
+                {"interested_users":
+                    {
+                        "user_chat_id": chat_id,
+                        "name": custom_name_message.text
+                    }}}
+        )
+        return True
 
 
 def delete_saved_news(message):
